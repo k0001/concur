@@ -2,6 +2,7 @@
 module Main where
 
 import           Control.Monad (forever)
+import           Data.JSString (JSString)
 
 import           Concur.Core
 import           Concur.React
@@ -10,7 +11,7 @@ import           Concur.React
 -- 1. This uses no state, as it was easy to build this using monadic flow
 -- 2. It was built by composing sub-widgets in a style that feels very functional.
 --    Top, open, menuItem, and menuButton are legitimate widgets on their own.
-menu :: [(String, [(a,String)])] -> Widget HTML a
+menu :: [(JSString, [(a,JSString)])] -> Widget HTML a
 menu cs = top 0 items >>= open items
   where
     items = menuItem <$> cs
@@ -19,15 +20,15 @@ menu cs = top 0 items >>= open items
       let w = [Left <$> top 0 (take i opts), Right <$> b, Left <$> top (i+1) (drop (i+1) opts)]
       in orr w >>= either (open opts) return
     menuItem (label, children) =
-      ( el_ "div" [vattr "className" "menu"] $ button' [] (text label)
-      , const $ el_ "div" [vattr "className" "menu"] $ orr $ map menuButton children
+      ( el "div" [vattr "className" "menu"] $ button [] (text label)
+      , const $ el "div" [vattr "className" "menu"] $ orr $ map menuButton children
       )
-    menuButton (ret,str) = ret <$ button' [] (text str)
+    menuButton (ret,str) = ret <$ button [] (text str)
 
 main :: IO ()
 main = runWidgetInBody $ forever $ do
   v <- menu items
-  el "div" [] $ [text $ "You picked - " ++ v, button' [] $ text "Restart"]
+  el "div" [] $ orr [text $ "You picked - " <> v, button [] $ text "Restart"]
   where
     items =
         [ ("Fruits",

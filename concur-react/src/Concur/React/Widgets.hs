@@ -6,6 +6,7 @@ module Concur.React.Widgets
   ( MonadWidget
     -- * Ready made widgets
   , text
+  , textS
   , button
   , inputEnter
   , inputEnterShowRead
@@ -24,8 +25,10 @@ import Control.ShiftMap
 import qualified Data.JSString as JSS
 import GHCJS.Types (JSString, JSVal)
 import GHCJS.Marshal.Pure (PToJSVal(pToJSVal))
+import Data.String (IsString(..))
 import Data.Void (Void, absurd)
 import Text.Read (readMaybe)
+import Prelude hiding (div)
 import Concur.React.DOM
 
 -- | A monad capable of rendering and interacting with widgets must satisfy
@@ -49,6 +52,12 @@ instance PToJSVal Comp where
   pToJSVal (CompRef v) = v
   pToJSVal (CompTag s) = pToJSVal s
 
+-- |
+-- @
+-- 'fromString' == 'CompTag'
+-- @
+instance IsString Comp where
+  fromString = CompTag . fromString
 
 -- | A text widget.
 --
@@ -56,6 +65,10 @@ instance PToJSVal Comp where
 -- @span@.
 text :: JSString -> Widget HTML a
 text txt = display [vtext txt]
+
+-- | Like 'text', but takes a 'String'.
+textS :: String -> Widget HTML a
+textS = text . fromString
 
 -- | A React component.
 el

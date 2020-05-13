@@ -1,8 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
-import Control.MonadSTM
-
 import Concur.Core
 import Concur.React
 
@@ -12,11 +10,11 @@ data CalculatorAction = Plus | Minus | Times | Div | Enter | Clear | Digit Int
 
 -- Button pad widget
 calcButtonsWidget :: Widget HTML CalculatorAction
-calcButtonsWidget = el "div" []
-  [ el "div" [] [d 7, d 8, d 9, opDiv]
-  , el "div" [] [d 4, d 5, d 6, opTimes]
-  , el "div" [] [d 1, d 2, d 3, opMinus]
-  , el "div" [] [d 0, ent, cls, opPlus]
+calcButtonsWidget = el "div" [] $ orr
+  [ el "div" [] $ orr [d 7, d 8, d 9, opDiv]
+  , el "div" [] $ orr [d 4, d 5, d 6, opTimes]
+  , el "div" [] $ orr [d 1, d 2, d 3, opMinus]
+  , el "div" [] $ orr [d 0, ent, cls, opPlus]
   ]
   where
     d n     = but (Digit n) (show n)
@@ -26,7 +24,7 @@ calcButtonsWidget = el "div" []
     opTimes = but Times "*"
     opMinus = but Minus "-"
     opPlus = but Plus "+"
-    but x s = (const x) <$> button [] (text s)
+    but x s = (const x) <$> button [] (textS s)
 
 -- Postfix calculation
 calc :: [Int] -> CalculatorAction -> ([Int], Int)
@@ -47,7 +45,7 @@ mainStandard :: IO ()
 mainStandard = runWidgetInBody $ go 0 []
   where
     go n s = do
-      a <- orr [text (show n), calcButtonsWidget]
+      a <- orr [textS (show n), calcButtonsWidget]
       let (s', n') = calc s a in go n' s'
 
 -- But in this example we don't use this "standard" way of doing things
@@ -73,15 +71,22 @@ buttonsWidget showResultWidget = go []
       -- 4. Repeats
       go st'
 
+{-
+remoteWidget :: (MultiAlternative m, MonadUnsafeBlockingIO m,
+MonadSafeBlockingIO m, MonadIO m, Monad m, Show a) => m b -> (a -> m b) -> IO (a
+-> m (), m b)
+-}
+
 -- Create a remote calculator display which can be controlled by other widgets
 makeCalcDisplay :: Widget HTML (Int -> Widget HTML (), Widget HTML x)
-makeCalcDisplay = liftSTM $ remoteWidget defaultDisplay handleResult
+makeCalcDisplay =
+    liftSafeBlockingIO $ remoteWidget defaultDisplay handleResult
   where
     defaultDisplay = text "This display is controlled by other widgets. GO AHEAD. PRESS A BUTTON."
-    handleResult res = text $ show res
+    handleResult res = textS $ show res
 
 -- Now we wire them together easily
 main :: IO ()
 main = runWidgetInBody $ do
   (showResult, calcDisp) <- makeCalcDisplay
-  el "div" [] [calcDisp, buttonsWidget showResult]
+  el "div" [] $ orr [calcDisp, buttonsWidget showResult]

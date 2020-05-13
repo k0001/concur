@@ -1,21 +1,17 @@
--- This file has been generated from package.yaml by hpack version 0.18.1.
---
--- see: https://github.com/sol/hpack
-
+cabal-version:       2.2
 name:                concur-react
 version:             0.1.0.0
 synopsis:            A client side web UI framework for Haskell. React bindings.
 description:         A client side web UI framework for Haskell. React bindings.
 homepage:            https://github.com/ajnsit/concur#readme
 bug-reports:         https://github.com/ajnsit/concur/issues
-license:             BSD3
+license:             BSD-3-Clause
 license-file:        LICENSE
 author:              Anupam Jain
 maintainer:          ajnsit@gmail.com
 copyright:           2017 (C) All Rights Reserved.
 category:            Web
 build-type:          Simple
-cabal-version:       >= 1.10
 
 extra-source-files:
     README.md
@@ -24,11 +20,24 @@ source-repository head
   type: git
   location: https://github.com/ajnsit/concur
 
-library
+common basics
   ghc-options: -Wall -ferror-spans
+  js-sources: jsbits/index.compiled.js
   default-language: Haskell2010
-  hs-source-dirs:
-      src
+  build-depends:
+      base >=4.7 && <5
+    , mtl >=2.2
+    , transformers >=0.5
+    , free >=4.12
+    , concur-core
+  if impl(ghcjs -any)
+    build-depends: ghcjs-base
+  else
+    build-depends: ghcjs-base-stub >=0.1
+
+library
+  import: basics
+  hs-source-dirs: src
   exposed-modules:
       Concur.React
       Concur.React.DOM
@@ -37,105 +46,31 @@ library
       Concur.Internal.ReactFFI
   other-modules:
       Paths_concur_react
-  build-depends:
-      base >=4.7 && <5
-    , mtl >=2.2
-    , transformers >=0.5
-    , stm >=2.4
-    , free >=4.12
-    , concur-core
   if impl(ghcjs -any)
-    hs-source-dirs:
-        src-ghcjs
-    build-depends:
-        ghcjs-base
+    hs-source-dirs: src-ghcjs
   else
-    hs-source-dirs:
-        src-ghc
-    build-depends:
-        ghcjs-base-stub >=0.1
+    hs-source-dirs: src-ghc
 
 executable concur-react-calculator
-  ghc-options: -Wall -ferror-spans
-  js-sources:
-      jsbits/index.compiled.js
-  default-language: Haskell2010
-  hs-source-dirs:
-      examples
+  import: basics
+  hs-source-dirs: examples
   main-is: Calc.hs
-  build-depends:
-      base >=4.7 && <5
-    , mtl >=2.2
-    , transformers >=0.5
-    , stm >=2.4
-    , free >=4.12
-    , concur-core
-    , concur-react
-  other-modules:
-      HiLo
-      Menu
-      MultiEntry
+  build-depends: concur-react
 
 executable concur-react-hilo
-  ghc-options: -Wall -ferror-spans
-  js-sources:
-      jsbits/index.compiled.js
-  default-language: Haskell2010
-  hs-source-dirs:
-      examples
+  import: basics
+  hs-source-dirs: examples
   main-is: HiLo.hs
-  build-depends:
-      base >=4.7 && <5
-    , mtl >=2.2
-    , transformers >=0.5
-    , stm >=2.4
-    , free >=4.12
-    , concur-core
-    , concur-react
-    , random
-  other-modules:
-      Calc
-      Menu
-      MultiEntry
+  build-depends: concur-react, random
 
 executable concur-react-menu
-  ghc-options: -Wall -ferror-spans
-  js-sources:
-      jsbits/index.compiled.js
-  default-language: Haskell2010
-  hs-source-dirs:
-      examples
+  import: basics
+  hs-source-dirs: examples
   main-is: Menu.hs
-  build-depends:
-      base >=4.7 && <5
-    , mtl >=2.2
-    , transformers >=0.5
-    , stm >=2.4
-    , free >=4.12
-    , concur-core
-    , concur-react
-  other-modules:
-      Calc
-      HiLo
-      MultiEntry
+  build-depends: concur-react
 
 executable concur-react-multi-entry
-  ghc-options: -Wall -ferror-spans
-  js-sources:
-      jsbits/index.compiled.js
-  default-language: Haskell2010
-  hs-source-dirs:
-      examples
+  import: basics
+  hs-source-dirs: examples
   main-is: MultiEntry.hs
-  build-depends:
-      base >=4.7 && <5
-    , mtl >=2.2
-    , transformers >=0.5
-    , stm >=2.4
-    , free >=4.12
-    , concur-core
-    , concur-react
-  other-modules:
-      Calc
-      HiLo
-      Menu
+  build-depends: concur-react
