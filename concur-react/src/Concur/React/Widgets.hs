@@ -1,116 +1,144 @@
+{-# LANGUAGE ConstraintKinds          #-}
 {-# LANGUAGE OverloadedStrings        #-}
 {-# LANGUAGE FlexibleContexts         #-}
-module Concur.React.Widgets where
+{-# LANGUAGE ScopedTypeVariables      #-}
+module Concur.React.Widgets
+  ( MonadWidget
+    -- * Ready made widgets
+  , text
+  , button
+  , inputEnter
+  , inputEnterShowRead
 
-import           GHCJS.Types                (JSString, JSVal)
+    -- * Custom widgets
+  , Comp(..)
+  , el
+  , elEvent
+  , elLeaf
+  , mkEventHandlerAttr
+  ) where
 
-import qualified Data.JSString              as JSS
+import Concur.Core
+import Control.Monad (when)
+import Control.ShiftMap
+import qualified Data.JSString as JSS
+import GHCJS.Types (JSString, JSVal)
+import GHCJS.Marshal.Pure (PToJSVal(pToJSVal))
+import Data.Void (Void, absurd)
+import Text.Read (readMaybe)
+import Concur.React.DOM
 
-import           Data.Void                  (Void, absurd)
-import           Text.Read                  (readMaybe)
+-- | A monad capable of rendering and interacting with widgets must satisfy
+-- these constraints.
+--
+-- Note that 'Widget HTML' satisfies these constaints.
+type MonadWidget m
+  = ( ShiftMap (Widget HTML) m
+    , MonadUnsafeBlockingIO m
+    , MonadSafeBlockingIO m
+    , MultiAlternative m
+    , Monad m
+    )
 
-import           Control.Monad              (void, when)
-import           Concur.Core
-import           Control.Concurrent.STM     (STM, atomically)
+-- | React component.
+data Comp
+  = CompTag !JSString  -- ^ A react component by tag name.
+  | CompRef !JSVal     -- ^ A react component by reference.
 
-import           Unsafe.Coerce              (unsafeCoerce)
+instance PToJSVal Comp where
+  pToJSVal (CompRef v) = v
+  pToJSVal (CompTag s) = pToJSVal s
 
-import           Concur.React.DOM
-import           Control.ShiftMap
-import           Control.MonadSTM
 
--- TODO: Since we can't have a top level text in React. We currently always wrap it in span.
-text :: String -> Widget HTML a
-text txt = display [vtext $ JSS.pack txt]
+-- | A text widget.
+--
+-- Note: Since we can't have a top level text in React, this is rendered in a
+-- @span@.
+text :: JSString -> Widget HTML a
+text txt = display [vtext txt]
 
--- Like el_ but accepts a React Component reference instead of a tagname
-elComp :: (ShiftMap (Widget HTML) m) => JSVal -> [VAttr] -> m a -> m a
-elComp e attrs = shiftMap (wrapView (vnode e attrs))
+-- | A React component.
+el
+  :: ShiftMap (Widget HTML) m
+  => Comp     -- ^ React component.
+  -> [VAttr]  -- ^ Attributes.
+  -> m a      -- ^ Child.
+  -> m a
+el c attrs = shiftMap (wrapView (vnode (pToJSVal c) attrs))
 
--- Generic Element wrapper (single child widget)
-el_ :: (ShiftMap (Widget HTML) m) => JSString -> [VAttr] -> m a -> m a
-el_ = elComp . unsafeCoerce
+-- | A leaf React component.
+elLeaf
+  :: Comp
+  -> [VAttr]
+  -> Widget HTML a -- ^
+elLeaf e attrs = display [vleaf (pToJSVal e) attrs]
 
--- Generic Element wrapper
-el :: (ShiftMap (Widget HTML) m, MultiAlternative m) => JSString -> [VAttr] -> [m a] -> m a
-el e attrs = el_ e attrs . orr
-
--- Create a dom leaf node
-elLeaf :: JSString -> [VAttr] -> Widget HTML a
-elLeaf e attrs = display [vleaf (unsafeCoerce e) attrs]
-
--- Helper
-mkEventHandlerAttr :: JSString -> STM (VAttr, STM JSVal)
+mkEventHandlerAttr
+  :: (Monad m, MonadUnsafeBlockingIO m, MonadSafeBlockingIO n)
+  => JSString
+  -- ^ Event name (e.g. @\"onClick\"@).
+  -> m (VAttr, n DOMEvent)
+  -- ^ Attribute to add to an element.
+  --
+  --   Blocking action to get the event payload.
 mkEventHandlerAttr evtName = do
-  -- TODO: Use blocking IO
-  n <- newNotify
-  let attr = VAttr evtName $ Right (atomically . notify n . unsafeCoerce)
-  return (attr, await n)
+  n <- liftUnsafeBlockingIO newNotify
+  let attr = VAttr evtName $ Right (notify n)
+  return (attr, liftSafeBlockingIO (await n))
 
--- Handle arbitrary events on an element.
-elEvent :: (ShiftMap (Widget HTML) m, MultiAlternative m, Monad m, MonadSTM m)
-        => JSString
-        -> (JSVal -> a)
-        -> JSString
-        -> [VAttr]
-        -> m a
-        -> m a
-elEvent evtName xtract tag attrs child = elEventComp evtName xtract (unsafeCoerce tag) attrs child
+-- | Handle arbitrary events on an element.
+elEvent
+  :: MonadWidget m
+  => JSString        -- ^ Event name.
+  -> (DOMEvent -> a) -- ^ Event handler.
+  -> Comp            -- ^ React component.
+  -> [VAttr]         -- ^ Attributes.
+  -> m a             -- ^ Child.
+  -> m a
+elEvent evtName xtract e attrs child = do
+  (a, w) <- mkEventHandlerAttr evtName
+  orr [fmap xtract w, el e (a : attrs) child]
 
--- Like elEvent, but works for arbitrary react components
-elEventComp :: (ShiftMap (Widget HTML) m, MultiAlternative m, Monad m, MonadSTM m)
-        => JSString
-        -> (JSVal -> a)
-        -> JSVal
-        -> [VAttr]
-        -> m a
-        -> m a
-elEventComp evtName xtract e attrs child = do
-  (a,w) <- liftSTM $ mkEventHandlerAttr evtName
-  orr [fmap xtract $ liftSTM w, elComp e (a:attrs) child]
+-- | A clickable button widget.
+button
+  :: MonadWidget m
+  => [VAttr] -- ^ Attributes.
+  -> m Void  -- ^ Child producing no events. If your child produces events, use
+             -- 'elEvent'.
+  -> m ()
+button attrs ch =
+  elEvent "onClick" (const ()) (CompTag "button") attrs (fmap absurd ch)
 
--- Similar to elEventComp, but specialised to the case where there are no child events.
-elEventComp' :: (ShiftMap (Widget HTML) m, MultiAlternative m, Monad m, MonadSTM m)
-         => JSString
-         -> JSVal
-         -> [VAttr]
-         -> m Void
-         -> m JSVal
-elEventComp' evtName comp attrs child = elEventComp evtName id comp attrs (fmap absurd child)
+-- Text input with an initial value.
+--
+-- Returns the contents on keypress enter.
+inputEnter
+  :: JSString  -- ^ Initial value.
+  -> [VAttr]   -- ^ Attributes.
+  -> Widget HTML JSString
+inputEnter curVal attrs = awaitViewAction $ \n ->
+   let evtattr = vevt "onKeyDown" (handleKey n)
+       valattr = vattr "defaultValue" curVal
+   in [vleaf (pToJSVal (CompTag "input"))
+             (evtattr : valattr : attrs)]
+ where
+   handleKey :: Notify JSString -> DOMEvent -> IO ()
+   handleKey n = \e -> do
+     let e' :: JSVal = unDOMEvent e
+     when (getProp "key" e' == "Enter") $ do
+       notify n $! getProp "value" $ getPropObj "target" e'
 
--- Similar to elEvent, but specialised to the case where there are no child events.
-elEvent' :: (ShiftMap (Widget HTML) m, MultiAlternative m, Monad m, MonadSTM m)
-         => JSString
-         -> JSString
-         -> [VAttr]
-         -> m Void
-         -> m JSVal
-elEvent' evtName tag attrs child = elEvent evtName id tag attrs (fmap absurd child)
-
--- A clickable button widget. Returns either the button click, or the child event.
-button :: (ShiftMap (Widget HTML) m, MultiAlternative m, Monad m, MonadSTM m) => [VAttr] -> m () -> m ()
-button attrs w = elEvent "onClick" (const ()) "button" attrs w
-
--- A clickable button widget, specialised to the case when there are no child events.
-button' :: (ShiftMap (Widget HTML) m, MultiAlternative m, Monad m, MonadSTM m) => [VAttr] -> m Void -> m ()
-button' attrs w = void $ elEvent' "onClick" "button" attrs w
-
--- Text input. Returns the contents on keypress enter.
-inputEnter :: [VAttr] -> Widget HTML String
-inputEnter = inputEnterVal ""
-
--- Text input. Returns the contents on keypress enter.
-inputEnterVal :: String -> [VAttr] -> Widget HTML String
-inputEnterVal curVal attrs = do
-  n <- liftSTM newNotify
-  let evtattr = vevt "onKeyDown" (handleKey n . unsafeCoerce)
-  let valattr = vattr "defaultValue" (JSS.pack curVal)
-  effect [vleaf (unsafeCoerce ("input" :: JSString)) (evtattr:valattr:attrs)] $ await n
+-- | Text input for a value that can be 'Show'n and 'Read'.
+--
+-- Returns the contents on keypress enter.
+inputEnterShowRead
+  :: forall a
+  .  (Show a, Read a)
+  => Maybe a  -- ^ Optional initial value.
+  -> Widget HTML a
+inputEnterShowRead = go . JSS.pack . maybe "" show
   where
-    handleKey n = \e -> do
-      atomically $ when (getProp "key" e == "Enter") $ notify n $! JSS.unpack $ getProp "value" $ getPropObj "target" e
-
-inputShowReadVal :: (Show a, Read a) => a -> Widget HTML a
-inputShowReadVal n =
-  readMaybe <$> inputEnterVal (show n) []
-  >>= maybe (inputShowReadVal n) return
+    go :: JSString -> Widget HTML a
+    go a0 = do
+      a1 <- inputEnter a0 []
+      maybe (go a1) pure (readMaybe (JSS.unpack a1))

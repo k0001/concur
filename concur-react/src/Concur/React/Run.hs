@@ -1,19 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Concur.React.Run where
 
-import           Concur.Core            (Suspend (..), SuspendF (..),
+import           Concur.Core            (SuspendF (..),
                                          Widget (..))
 import           Concur.React.DOM       (DOMNode, HTML, bakeAttrs,
                                          bakeReactHTML, documentBody,
                                          mkReactParent, renderReactDOM)
-
-import           Control.Concurrent.STM (atomically)
 import           Control.Monad.Free     (Free (..))
-import           Control.Monad.IO.Class (MonadIO (..))
-
-import           Data.Maybe             (fromMaybe)
+import           GHCJS.Marshal.Pure     (pToJSVal)
 import           GHCJS.Types            (JSString)
-import           Unsafe.Coerce          (unsafeCoerce)
 
 runWidgetInBody :: Widget HTML a -> IO a
 runWidgetInBody w = do
@@ -23,11 +18,16 @@ runWidgetInBody w = do
 runWidget :: Widget HTML a -> DOMNode -> IO a
 runWidget (Widget w) root = go w
   where
-    go :: Free (Suspend HTML) a -> IO a
-    go w' = do
-      case w' of
-        Pure a -> liftIO (putStrLn "WARNING: Application exited: This may have been unintentional!") >> return a
-        Free (Suspend io) -> liftIO io >>= \ws -> do
-          html <- mkReactParent (unsafeCoerce ("div" :: JSString)) <$> (bakeAttrs []) <*> (bakeReactHTML (view ws))
-          renderReactDOM root html
-          liftIO (atomically $ fromMaybe (Free $ Suspend $ return ws) <$> cont ws) >>= go
+    go :: Free (SuspendF HTML) a -> IO a
+    go (Free (StepView v next)) = do
+      let tag = pToJSVal ("div" :: JSString)
+      attrs <- bakeAttrs []
+      html <- bakeReactHTML v
+      renderReactDOM root (mkReactParent tag attrs html)
+      go next
+    go (Free (StepIO io next)) = fmap next io >>= go
+    go (Free (StepBlock io next)) = fmap next io >>= go
+    go (Free Forever) = error "Application diverged!"
+    go (Pure a) = do
+      putStrLn "WARNING: Application exited: This may have been unintentional!"
+      pure a
